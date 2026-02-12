@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mines Bot</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#0b1320;color:#e5e7eb;display:flex;justify-content:center;align-items:center;min-height:100vh;}
+.card{width:360px;background:#0f1b2d;border-radius:16px;padding:20px;}
+#keySection{display:flex;flex-direction:column;gap:12px;}
+#keySection input{height:40px;border:none;border-radius:12px;padding:0 12px;background:#1e2a3a;color:#fff;}
+#keySection button{height:42px;border:none;border-radius:14px;background:#2ecc71;font-weight:800;cursor:pointer;}
+#resendBtn{background:#888;}
+#resendBtn:disabled{opacity:.5;cursor:not-allowed;}
+#timerText{font-size:13px;color:#9aa4b2;}
+#botUI{display:none;flex-direction:column;gap:14px;}
+.title{text-align:center;font-weight:700;}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;}
+.tile{aspect-ratio:1/1;background:#1e2a3a;border-radius:8px;transition:.25s;}
+.tile.selected{background:#9bff3f;box-shadow:0 0 5px rgba(155,255,63,.35);transform:scale(1.03);}
+.input,.select{height:38px;border:none;border-radius:12px;padding:0 10px;background:#1e2a3a;color:#fff;}
+.row{display:flex;gap:8px;}
+.btn{height:42px;border:none;border-radius:14px;background:#2ecc71;font-weight:900;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="card">
+
+<!-- KEY SECTION -->
+<div id="keySection">
+    <div class="title">Enter Key</div>
+    <input id="keyInput" placeholder="Enter Key (from Telegram)" maxlength="19">
+    <button onclick="checkKey()">Activate</button>
+    <button id="resendBtn" onclick="resendKey()">Resend Key</button>
+    <div id="timerText"></div>
+</div>
+
+<!-- BOT UI -->
+<div id="botUI">
+    <div class="title">Mines Bot</div>
+    <div class="grid" id="grid"></div>
+    <input id="seed" class="input" placeholder="Server Seed">
+    <div class="row">
+        <input id="bet" type="number" class="input" placeholder="Bet Amount">
+        <select class="select">
+            <option>USDT</option><option>INR</option><option>USD</option>
+        </select>
+    </div>
+    <select id="mines" class="select">
+        <option value="1">1</option><option value="2">2</option><option selected>3</option>
+    </select>
+    <button class="btn" onclick="predict()">Predict</button>
+</div>
+
+</div>
+
+<script>
+/* CONFIG */
+const BOT_TOKEN = "8255911901:AAEYpSM06Ub0pwFOPed5fMWAiC6gCdCFkrA";
+const CHAT_ID = "8060641565";
+const OTP_VALIDITY = 60; // seconds
+const SESSION_DURATION = 30*60*1000; // 30 min
+let otpExpireTime=null;
+let sessionExpireTime=null;
+let currentKey=null;
+const CORS_PROXY = "https://corsproxy.io/?";
+const resendBtn = document.getElementById("resendBtn");
+
+/* HEX KEY GENERATOR */
+function generateKey(){
+    const hex = "0123456789abcdef";
+    let parts = [];
+    for(let i=0;i<4;i++){
+        let part = "";
+        for(let j=0;j<4;j++){
+            part += hex[Math.floor(Math.random()*hex.length)];
+        }
+        parts.push(part);
+    }
+    return parts.join("-");
+}
+
+/* SEND KEY TO TELEGRAM */
+function sendKey(){
+    const key = generateKey();
+    currentKey = key;
+    otpExpireTime = Date.now() + OTP_VALIDITY*1000;
+    sessionStorage.setItem("LOGIN_KEY", key);
+
+    // Disable resend until OTP expires
+    resendBtn.disabled = true;
+
+    const message = `🔐 Your Login Key: ${key}\n⏳ Valid for ${OTP_VALIDITY} seconds`;
+    fetch(`${CORS_PROXY}https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(message)}`)
+        .then(res=>res.json()).then(data=>console.log(data));
+
+    updateTimer();
+
+    // Enable resend only after OTP expires
+    setTimeout(()=>{ resendBtn.disabled = false; }, OTP_VALIDITY*1000);
+}
+
+/* RESEND KEY */
+function resendKey(){
+    if(resendBtn.disabled){
+        alert("⏳ Wait until current Key expires!");
+        return;
+    }
+    sendKey();
+    alert("✅ New Key sent. Check Telegram!");
+}
+
+/* CHECK KEY */
+function checkKey(){
+    const userKey = document.getElementById("keyInput").value;
+    const realKey = sessionStorage.getItem("LOGIN_KEY");
+
+    if(!realKey){ alert("❌ Key not generated yet. Press Resend Key."); return; }
+    if(Date.now() > otpExpireTime){ alert("❌ Key expired! Please resend"); return; }
+
+    if(userKey === realKey){
+        document.getElementById("keySection").style.display="none";
+        document.getElementById("botUI").style.display="flex";
+        sessionExpireTime = Date.now() + SESSION_DURATION;
+        sessionStorage.setItem("SESSION_EXPIRE", sessionExpireTime);
+        sessionStorage.setItem("DEVICE_ID", navigator.userAgent);
+    } else {
+        alert("❌ Wrong Key");
+    }
+}
+
+/* SESSION CHECK */
+function checkSession(){
+    const expire = sessionStorage.getItem("SESSION_EXPIRE");
+    const device = sessionStorage.getItem("DEVICE_ID");
+    if(expire && device === navigator.userAgent && Date.now()<expire){
+        document.getElementById("keySection").style.display="none";
+        document.getElementById("botUI").style.display="flex";
+        return true;
+    }
+    return false;
+}
+
+/* TIMER */
+let timerInterval=null;
+function updateTimer(){
+    clearInterval(timerInterval);
+    function tick(){
+        const remaining = Math.max(0, Math.floor((otpExpireTime - Date.now())/1000));
+        document.getElementById("timerText").innerText = `Key valid for ${remaining} seconds`;
+        if(remaining<=0) clearInterval(timerInterval);
+    }
+    tick();
+    timerInterval = setInterval(tick,1000);
+}
+
+/* GRID */
+const grid=document.getElementById("grid");
+for(let i=0;i<25;i++){const d=document.createElement("div");d.className="tile";grid.appendChild(d);}
+
+/* PREDICT */
+const seed=document.getElementById("seed");
+const bet=document.getElementById("bet");
+const minesSelect=document.getElementById("mines");
+async function predict(){
+    if(!seed.value || !bet.value){alert("Server Seed & Bet Amount required");return;}
+    const tiles=[...document.querySelectorAll(".tile")];
+    tiles.forEach(t=>t.classList.remove("selected"));
+    const mines=+minesSelect.value;
+    const count=mines>=6?rand(3,4):rand(3,6);
+    const set=new Set();
+    while(set.size<count)set.add(rand(0,24));
+    [...set].forEach((i,idx)=>setTimeout(()=>tiles[i].classList.add("selected"),idx*120));
+}
+function rand(a,b){return Math.floor(Math.random()*(b-a+1))+a}
+
+/* INIT */
+checkSession();
+</script>
+</body>
+</html>
